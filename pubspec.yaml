@@ -30,6 +30,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  video_probe:
+    git:
+      url: https://github.com/AlainDevs/video_probe.git
 
   cupertino_icons: ^1.0.8
   image_picker: ^1.1.2

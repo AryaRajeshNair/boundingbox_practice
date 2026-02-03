@@ -5,16 +5,19 @@ import '../models/boundingbox_logic.dart';
 import '../painters/annotation_painter.dart';
 
 class AnnotationScreen extends StatefulWidget {
-  final String imagePath;
+  final String? imagePath;
+  final Uint8List? imageData;
   final String imageName; 
   final List<ObjectClass> classes;
 
   const AnnotationScreen({
     super.key,
-    required this.imagePath,
+    this.imagePath,
+    this.imageData,
     required this.imageName,
     required this.classes,
-  });
+  }) : assert(imagePath != null || imageData != null,
+            'Either imagePath or imageData must be provided');
 
   @override
   State<AnnotationScreen> createState() => _AnnotationScreenState();
@@ -255,15 +258,28 @@ class _AnnotationScreenState extends State<AnnotationScreen> {
                                 });
                               });
                             }
-                            return Image.network(
-                              widget.imagePath,
-                              fit: BoxFit.contain,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Center(
-                                  child: Text('Error loading image: $error'),
-                                );
-                              },
-                            );
+                            
+                            if (widget.imageData != null) {
+                              return Image.memory(
+                                widget.imageData!,
+                                fit: BoxFit.contain,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Center(
+                                    child: Text('Error loading image: $error'),
+                                  );
+                                },
+                              );
+                            } else {
+                              return Image.network(
+                                widget.imagePath!,
+                                fit: BoxFit.contain,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Center(
+                                    child: Text('Error loading image: $error'),
+                                  );
+                                },
+                              );
+                            }
                           },
                         ),
                         // Annotation canvas

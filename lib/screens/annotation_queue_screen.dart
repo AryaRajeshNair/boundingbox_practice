@@ -1,16 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'dart:typed_data';
 import '../models/boundingbox_logic.dart';
 import 'annotation_screen.dart';
 
 class AnnotationQueueScreen extends StatefulWidget {
-  final List<XFile> images;
+  final List<XFile>? images;
+  final List<Uint8List>? videoFrames;
   final List<ObjectClass> classes;
+  final String? videoName;
 
   const AnnotationQueueScreen({
-    required this.images,
+    this.images,
+    this.videoFrames,
     required this.classes,
-  });
+    this.videoName,
+  })  : assert(images != null || videoFrames != null,
+            'Either images or videoFrames must be provided');
 
   @override
   State<AnnotationQueueScreen> createState() => _AnnotationQueueScreenState();
@@ -19,20 +25,22 @@ class AnnotationQueueScreen extends StatefulWidget {
 class _AnnotationQueueScreenState extends State<AnnotationQueueScreen> {
   late int currentIndex = 0;
 
-  
+  bool get _isVideoMode => widget.videoFrames != null;
+  int get _itemCount => _isVideoMode ? widget.videoFrames!.length : widget.images!.length;
+
   String _getFilenameWithoutExtension(String imagePath) {
     return imagePath.split('/').last.split('.').first;
   }
 
   void _goToNextImage() {
-    if (currentIndex < widget.images.length - 1) {
+    if (currentIndex < _itemCount - 1) {
       setState(() {
         currentIndex++;
       });
     } else {
       // Finished all images
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('All images annotated!')),
+        const SnackBar(content: Text('All items annotated!')),
       );
       Navigator.pop(context);
     }
@@ -47,30 +55,49 @@ class _AnnotationQueueScreenState extends State<AnnotationQueueScreen> {
   }
 
   void _annotateCurrentImage() {
-    final currentImage = widget.images[currentIndex];
-    final imageName = _getFilenameWithoutExtension(currentImage.path);
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => AnnotationScreen(
-          imagePath: currentImage.path,
-          imageName: imageName, // Pass image name for filename generation
-          classes: widget.classes,
+    if (_isVideoMode) {
+      final frameName = '${widget.videoName} - Frame ${currentIndex + 1}';
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => AnnotationScreen(
+            imageData: widget.videoFrames![currentIndex],
+            imageName: frameName,
+            classes: widget.classes,
+          ),
         ),
-      ),
-    );
+      );
+    } else {
+      final currentImage = widget.images![currentIndex];
+      final imageName = _getFilenameWithoutExtension(currentImage.path);
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => AnnotationScreen(
+            imagePath: currentImage.path,
+            imageName: imageName,
+            classes: widget.classes,
+          ),
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final currentImage = widget.images[currentIndex];
-    final imageName = _getFilenameWithoutExtension(currentImage.path);
+    final title = _isVideoMode
+        ? 'Frame ${currentIndex + 1} of ${_itemCount}'
+        : 'Image ${currentIndex + 1} of ${_itemCount}';
+    
+    final displayName = _isVideoMode 
+        ? '${widget.videoName} - Frame ${currentIndex + 1}'
+        : _getFilenameWithoutExtension(widget.images![currentIndex].path);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Image ${currentIndex + 1} of ${widget.images.length}',
+          title,
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         elevation: 0,
@@ -91,14 +118,26 @@ class _AnnotationQueueScreenState extends State<AnnotationQueueScreen> {
                   ),
                   child: Column(
                     children: [
-                      Icon(
-                        Icons.image,
-                        size: 80,
-                        color: Colors.deepPurple.withValues(alpha: 0.5),
-                      ),
+                      // Display frame/image
+                      if (_isVideoMode)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.memory(
+                            widget.videoFrames![currentIndex],
+                            width: 300,
+                            height: 300,
+                            fit: BoxFit.contain,
+                          ),
+                        )
+                      else
+                        Icon(
+                          Icons.image,
+                          size: 80,
+                          color: Colors.deepPurple.withValues(alpha: 0.5),
+                        ),
                       const SizedBox(height: 16),
                       Text(
-                        'Image Name:',
+                        _isVideoMode ? 'Frame Name:' : 'Image Name:',
                         style: Theme.of(context).textTheme.titleSmall,
                       ),
                       const SizedBox(height: 8),
@@ -112,7 +151,7 @@ class _AnnotationQueueScreenState extends State<AnnotationQueueScreen> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          imageName,
+                          displayName,
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontFamily: 'Courier',
@@ -120,21 +159,29 @@ class _AnnotationQueueScreenState extends State<AnnotationQueueScreen> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Text(
-                        'Full Path:',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        currentImage.path,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.grey[600],
-                              fontSize: 10,
-                            ),
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      if (!_isVideoMode) ...[
+                        Text(
+                          'Full Path:',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          widget.images![currentIndex].path,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Colors.grey[600],
+                                fontSize: 10,
+                              ),
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ] else
+                        Text(
+                          'Video: ${widget.videoName}',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Colors.grey[600],
+                              ),
+                        ),
                       const SizedBox(height: 16),
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -194,7 +241,7 @@ class _AnnotationQueueScreenState extends State<AnnotationQueueScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: OutlinedButton.icon(
-                            onPressed: currentIndex < widget.images.length - 1
+                            onPressed: currentIndex < _itemCount - 1
                                 ? _goToNextImage
                                 : null,
                             icon: const Icon(Icons.arrow_forward),

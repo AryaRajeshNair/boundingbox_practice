@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:video_probe/video_probe.dart';
 import 'screens/annotation_queue_screen.dart';
 import 'models/boundingbox_logic.dart';
+import 'dart:typed_data';
 
 void main() {
   runApp(const MyApp());
@@ -34,6 +36,8 @@ class _HomePageState extends State<HomePage> {
   final ImagePicker _imagePicker = ImagePicker();
   late List<ObjectClass> objectClasses;
   List<XFile> _selectedImages = [];
+  List<Uint8List>? _videoFrames;
+  String? _selectedVideoName;
 
   @override
   void initState() {
@@ -63,16 +67,72 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _pickVideo() async {
+    try {
+      final XFile? video = await _imagePicker.pickVideo(source: ImageSource.gallery);
+      if (video != null) {
+        final probe = VideoProbe();
+        
+        // Get video duration and frame count
+        await probe.getDuration(video.path);
+        final frameCount = await probe.getFrameCount(video.path);
+        
+        // Extract frames at evenly spaced intervals (6 frames total)
+        final List<Uint8List> frames = [];
+        final int frameInterval = (frameCount / 6).toInt();
+        
+        for (int i = 1; i <= 6; i++) {
+          final int frameIndex = frameInterval * i;
+          if (frameIndex < frameCount) {
+            try {
+              final jpegBytes = await probe.extractFrame(video.path, frameIndex);
+              if (jpegBytes != null) {
+                frames.add(jpegBytes);
+              }
+            } catch (e) {
+              print('Error extracting frame at index $frameIndex: $e');
+            }
+          }
+        }
+
+        setState(() {
+          _videoFrames = frames;
+          _selectedVideoName = video.name;
+        });
+
+        if (mounted && frames.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Extracted ${frames.length} frames from video')),
+          );
+        }
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error picking video: $e')),
+      );
+    }
+  }
+
   void _navigateToAnnotationQueue() {
-    if (_selectedImages.isEmpty) return;
+    if (_selectedImages.isEmpty && (_videoFrames == null || _videoFrames!.isEmpty)) return;
 
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => AnnotationQueueScreen(
-          images: _selectedImages,
-          classes: objectClasses,
-        ),
+        builder: (context) {
+          if (_videoFrames != null && _videoFrames!.isNotEmpty) {
+            return AnnotationQueueScreen(
+              videoFrames: _videoFrames,
+              classes: objectClasses,
+              videoName: _selectedVideoName,
+            );
+          } else {
+            return AnnotationQueueScreen(
+              images: _selectedImages,
+              classes: objectClasses,
+            );
+          }
+        },
       ),
     );
   }
@@ -134,7 +194,81 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton.icon(
+                    onPressed: _pickVideo,
+                    icon: const Icon(Icons.video_library),
+                    label: const Text('Pick Video'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue.shade400,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 48),
+                
+                // Display extracted video frames
+                if (_videoFrames != null && _videoFrames!.isNotEmpty)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Extracted Frames from: $_selectedVideoName',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        height: 200,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _videoFrames!.length,
+                          itemBuilder: (context, index) {
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 12.0),
+                              child: Column(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.memory(
+                                      _videoFrames![index],
+                                      width: 150,
+                                      height: 150,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text('Frame ${index + 1}'),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: ElevatedButton.icon(
+                          onPressed: _navigateToAnnotationQueue,
+                          icon: const Icon(Icons.arrow_forward),
+                          label: const Text('Annotate Frames'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue.shade600,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 48),
+                    ],
+                  ),
                 
                 Container(
                   padding: const EdgeInsets.all(16),
